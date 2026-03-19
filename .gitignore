@@ -1,0 +1,127 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# PyInstaller
+*.manifest
+*.spec
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+.pytest_cache/
+
+# Translations
+*.mo
+*.pot
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# IPython
+profile_default/
+ipython_config.py
+
+# pyenv
+.python-version
+
+# Environments
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Markdown files (except README.md)
+*.md
+!README.md
+
+# Data files (large)
+data/fetal-head/
+data/train/
+data/val/
+data/test/
+data/*.yaml
+data/*.json
+data/mini_test/
+data/demo_mini/
+data/fetsam_mini/
+
+# Results and outputs
+results/
+runs/
+*.pt
+*.onnx
+*.torchscript
+*.engine
+
+# Logs
+*.log
+wandb/
+mlruns/
+
+# Temporary files
+*.tmp
+*.temp
+.cache/
+
+# Ultralytics (submodule or local)
+ultralytics-yolo/
+
+# Large files
+*.zip
+*.tar
+*.tar.gz
+*.h5
+*.hdf5
+
+# Literatures (PDFs)
+literatures/
