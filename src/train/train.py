@@ -19,7 +19,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from src.util.constants import (
     DATA_DIR, RESULTS_DIR, IMG_SIZE, NUM_CLASSES, CLASS_NAMES,
-    TRAINING_CONFIG, EXPERIMENTS, AUGMENTATION_CONFIG,
+    TRAINING_CONFIG, EXPERIMENTS, FETSAM_AUGMENTATION, BASIC_AUGMENTATION,
     IS_KAGGLE, ensure_dirs
 )
 
@@ -30,39 +30,9 @@ def get_augmentation_config(experiment_type: str = "basic") -> Dict:
     Based on FetSAM paper augmentation strategy.
     """
     if experiment_type == "basic":
-        return {
-            "hsv_h": 0.015,
-            "hsv_s": 0.7,
-            "hsv_v": 0.4,
-            "degrees": 0.0,
-            "translate": 0.1,
-            "scale": 0.5,
-            "shear": 0.0,
-            "perspective": 0.0,
-            "flipud": 0.0,
-            "fliplr": 0.5,
-            "mosaic": 0.0,
-            "mixup": 0.0,
-            "copy_paste": 0.0,
-        }
-
+        return BASIC_AUGMENTATION.copy()
     elif experiment_type == "fetsam_full":
-        return {
-            "hsv_h": 0.0,
-            "hsv_s": 0.0,
-            "hsv_v": 0.4,
-            "degrees": 30.0,
-            "translate": 0.1,
-            "scale": 0.3,
-            "shear": 0.0,
-            "perspective": 0.0,
-            "flipud": 0.3,
-            "fliplr": 0.3,
-            "mosaic": 0.0,
-            "mixup": 0.0,
-            "copy_paste": 0.0,
-        }
-
+        return FETSAM_AUGMENTATION.copy()
     return {}
 
 

@@ -66,37 +66,77 @@ AUGMENTATION_CONFIG = {
     "gaussian_blur_limit": (3, 7),
 }
 
+# FetSAM Augmentation Configurations
+FETSAM_AUGMENTATION = {
+    "hsv_h": 0.0,
+    "hsv_s": 0.0,
+    "hsv_v": 0.4,
+    "degrees": 30.0,
+    "translate": 0.1,
+    "scale": 0.3,
+    "shear": 0.0,
+    "perspective": 0.0,
+    "flipud": 0.3,
+    "fliplr": 0.3,
+    "mosaic": 0.0,
+    "mixup": 0.0,
+    "copy_paste": 0.0,
+}
+
+BASIC_AUGMENTATION = {
+    "hsv_h": 0.015,
+    "hsv_s": 0.7,
+    "hsv_v": 0.4,
+    "degrees": 0.0,
+    "translate": 0.1,
+    "scale": 0.5,
+    "shear": 0.0,
+    "perspective": 0.0,
+    "flipud": 0.0,
+    "fliplr": 0.5,
+    "mosaic": 0.0,
+    "mixup": 0.0,
+    "copy_paste": 0.0,
+}
+
 # Experiment Configurations
 EXPERIMENTS = {
     "baseline": {
         "name": "Baseline YOLO26n-seg",
         "description": "Standard YOLO26n with YOLO default loss (BCE+Dice)",
         "model_size": "n",
-        "augmentation": "basic",
-        "loss_config": "default",
+        "augmentation": BASIC_AUGMENTATION,
+        "custom_loss": False,
+        "use_fetsam_aug": False,
     },
     "fetsam_aug": {
         "name": "FetSAM Augmentation",
         "description": "YOLO26n with FetSAM paper augmentations",
         "model_size": "n",
-        "augmentation": "fetsam_full",
-        "loss_config": "default",
+        "augmentation": FETSAM_AUGMENTATION,
+        "custom_loss": False,
+        "use_fetsam_aug": True,
     },
     "fetsam_loss": {
         "name": "FetSAM Combined Loss",
         "description": "Weighted Dice + Weighted Lovasz (α=0.5, β=0.5)",
         "model_size": "n",
-        "augmentation": "fetsam_full",
-        "loss_config": "fetsam",
+        "augmentation": FETSAM_AUGMENTATION,
+        "custom_loss": True,
+        "use_fetsam_aug": True,
     },
     "fetsam_full": {
         "name": "Full FetSAM Pipeline",
         "description": "FetSAM augmentations + FetSAM loss",
         "model_size": "n",
-        "augmentation": "fetsam_full",
-        "loss_config": "fetsam",
+        "augmentation": FETSAM_AUGMENTATION,
+        "custom_loss": True,
+        "use_fetsam_aug": True,
     },
 }
+
+# FetSAM Loss Configuration
+FETSAM_CLASS_WEIGHTS = [0.1, 0.9, 0.7]  # Brain, CSP, LV
 
 # FetSAM Loss Implementation Notes:
 #
@@ -131,6 +171,8 @@ TRAINING_CONFIG = {
     "workers": 8,
     "seed": 42,
 }
+
+TRAINING_HYPERPARAMS = TRAINING_CONFIG
 
 # Evaluation Metrics
 METRICS = {
