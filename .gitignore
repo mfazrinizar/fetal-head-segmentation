@@ -90,6 +90,7 @@ data/train/
 data/val/
 data/test/
 data/*.yaml
+!data/dataset.yaml
 data/*.json
 data/mini_test/
 data/demo_mini/
