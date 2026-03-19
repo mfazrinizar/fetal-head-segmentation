@@ -126,3 +126,4 @@ ultralytics-yolo/
 
 # Literatures (PDFs)
 literatures/
+*.code-workspace
