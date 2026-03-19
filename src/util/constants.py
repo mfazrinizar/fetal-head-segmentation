@@ -9,7 +9,7 @@ IS_KAGGLE = os.path.exists("/kaggle/input")
 
 if IS_KAGGLE:
     BASE_DIR = Path("/kaggle/working/fetal-head-segmentation")
-    DATA_DIR = Path("/kaggle/input/fetal-head-segmentation-yolo-splitted")
+    DATA_DIR = Path("/kaggle/input/datasets/mfazrinizar/fetal-head-segmentation-yolo-splitted")
     RAW_DATA_DIR = DATA_DIR
 else:
     BASE_DIR = Path("/mnt/mfn/Projects/fetal-head-segmentation")
