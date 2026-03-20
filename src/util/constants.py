@@ -83,6 +83,25 @@ FETSAM_AUGMENTATION = {
     "copy_paste": 0.0,
 }
 
+# Class-Balanced Augmentation (enhanced for small structures)
+# copy_paste=0.5 copies instances from other images, helping underrepresented classes
+# Higher scale variance helps with size variations in CSP/LV
+CLASS_BALANCED_AUGMENTATION = {
+    "hsv_h": 0.0,
+    "hsv_s": 0.0,
+    "hsv_v": 0.4,
+    "degrees": 30.0,
+    "translate": 0.15,
+    "scale": 0.4,  # Higher scale variance for better generalization
+    "shear": 0.0,
+    "perspective": 0.0,
+    "flipud": 0.3,
+    "fliplr": 0.3,
+    "mosaic": 0.5,  # Enable mosaic for more diverse training
+    "mixup": 0.1,   # Light mixup
+    "copy_paste": 0.5,  # Copy-paste augmentation for class balancing
+}
+
 BASIC_AUGMENTATION = {
     "hsv_h": 0.015,
     "hsv_s": 0.7,
@@ -133,10 +152,41 @@ EXPERIMENTS = {
         "custom_loss": True,
         "use_fetsam_aug": True,
     },
+    "fetsam_balanced_l": {
+        "name": "Class-Balanced YOLO26L",
+        "description": "YOLO26L-seg with class-balanced augmentation (copy_paste, mosaic) + FetSAM loss",
+        "model_size": "l",
+        "augmentation": CLASS_BALANCED_AUGMENTATION,
+        "custom_loss": True,
+        "use_fetsam_aug": True,
+        "img_size": 800,  # Larger images for better small object detection
+        "batch_size": 16,  # Adjusted for L model on T4x2
+        "epochs": 300,
+    },
+    "fetsam_balanced_m": {
+        "name": "Class-Balanced YOLO26M",
+        "description": "YOLO26M-seg with class-balanced augmentation + FetSAM loss (middle ground)",
+        "model_size": "m",
+        "augmentation": CLASS_BALANCED_AUGMENTATION,
+        "custom_loss": True,
+        "use_fetsam_aug": True,
+        "img_size": 800,
+        "batch_size": 32,  # M model can handle larger batches
+        "epochs": 300,
+    },
 }
 
-# FetSAM Loss Configuration
-FETSAM_CLASS_WEIGHTS = [0.1, 0.9, 0.7]  # Brain, CSP, LV
+# FetSAM Class Weights Configuration
+# Based on inverse frequency: CSP (0.34x Brain), LV (0.39x Brain)
+FETSAM_CLASS_WEIGHTS = [0.1, 0.9, 0.7]  # Brain, CSP, LV (from paper)
+
+# Computed inverse frequency weights (more aggressive on CSP)
+# Brain: 0.15, CSP: 0.45, LV: 0.39
+INVERSE_FREQ_CLASS_WEIGHTS = [0.15, 0.45, 0.40]  # Normalized inverse frequency
+
+# Class distribution in training set:
+# Brain: 2626 (100%), CSP: 890 (34%), LV: 1026 (39%)
+CLASS_DISTRIBUTION = {"Brain": 2626, "CSP": 890, "LV": 1026}
 
 # FetSAM Loss Implementation Notes:
 #
