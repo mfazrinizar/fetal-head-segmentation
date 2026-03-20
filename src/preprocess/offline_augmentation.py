@@ -324,7 +324,7 @@ def offline_augment_dataset(
 
 
 def check_augmentation_status(data_dir: Path) -> dict:
-    """Check if dataset has been augmented."""
+    """Check if dataset has been augmented successfully."""
     marker_file = data_dir / ".offline_augmented"
     train_labels = data_dir / "train" / "labels"
     
@@ -333,6 +333,13 @@ def check_augmentation_status(data_dir: Path) -> dict:
     if marker_file.exists():
         with open(marker_file) as f:
             info = json.load(f)
+        
+        # Validate marker - if it shows 0 generated or 0 total, it's invalid
+        if info.get("total_after", 0) == 0 or info.get("generated", 0) == 0:
+            # Invalid marker from failed run - delete it
+            marker_file.unlink()
+            return {"augmented": False, "current_counts": counts, "note": "Invalid marker removed"}
+        
         return {"augmented": True, "info": info, "current_counts": counts}
     
     return {"augmented": False, "current_counts": counts}

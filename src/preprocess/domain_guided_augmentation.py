@@ -358,11 +358,18 @@ def run_domain_guided_augmentation(
 
 
 def check_domain_guided_status(data_dir: Path) -> dict:
-    """Check if domain-guided augmentation has been applied."""
+    """Check if domain-guided augmentation has been applied successfully."""
     marker_file = data_dir / ".domain_guided_augmented"
     if marker_file.exists():
         with open(marker_file) as f:
-            return {"done": True, "info": json.load(f)}
+            info = json.load(f)
+        
+        # Validate marker - if it shows 0 generated, it's invalid
+        if info.get("generated", 0) == 0:
+            marker_file.unlink()
+            return {"done": False, "note": "Invalid marker removed"}
+        
+        return {"done": True, "info": info}
     return {"done": False}
 
 
