@@ -128,6 +128,9 @@ EXPERIMENTS = {
         "augmentation": BASIC_AUGMENTATION,
         "custom_loss": False,
         "use_fetsam_aug": False,
+        "img_size": 640,
+        "batch_size": 64, 
+        "epochs": 300,
     },
     "fetsam_aug": {
         "name": "FetSAM Augmentation",
@@ -160,8 +163,8 @@ EXPERIMENTS = {
         "augmentation": CLASS_BALANCED_AUGMENTATION,
         "custom_loss": True,
         "use_fetsam_aug": True,
-        "img_size": 800,  # Larger images for better small object detection
-        "batch_size": 16,  # Adjusted for L model on T4x2
+        "img_size": 800,
+        "batch_size": 16,  # T4x2: ~11GB/GPU
         "epochs": 300,
     },
     "fetsam_balanced_m": {
@@ -172,20 +175,20 @@ EXPERIMENTS = {
         "custom_loss": True,
         "use_fetsam_aug": True,
         "img_size": 800,
-        "batch_size": 32,  # M model can handle larger batches
+        "batch_size": 32,
         "epochs": 300,
     },
     "domain_guided_l": {
         "name": "Domain-Guided YOLO26L",
         "description": "YOLO26L with domain-guided augmentation (context-preserving cut-paste) + FetSAM loss",
         "model_size": "l",
-        "augmentation": FETSAM_AUGMENTATION,  # Standard augmentation during training
+        "augmentation": FETSAM_AUGMENTATION,
         "custom_loss": True,
         "use_fetsam_aug": True,
-        "use_domain_guided": True,  # Run domain-guided offline augmentation before training
-        "domain_guided_multiplier": 1.5,  # 1.5x dataset size
+        "use_domain_guided": True,
+        "domain_guided_multiplier": 1.5,
         "img_size": 800,
-        "batch_size": 16,
+        "batch_size": 16,  # T4x2: ~11GB/GPU
         "epochs": 300,
     },
     "domain_guided_offline_l": {
@@ -196,11 +199,11 @@ EXPERIMENTS = {
         "custom_loss": True,
         "use_fetsam_aug": True,
         "use_domain_guided": True,
-        "use_offline_aug": True,  # Also run standard offline augmentation
+        "use_offline_aug": True,
         "domain_guided_multiplier": 1.3,
         "offline_aug_multiplier": 1.5,
         "img_size": 800,
-        "batch_size": 16,
+        "batch_size": 16,  # T4x2: ~11GB/GPU
         "epochs": 300,
     },
 }
