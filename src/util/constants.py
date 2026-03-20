@@ -83,23 +83,24 @@ FETSAM_AUGMENTATION = {
     "copy_paste": 0.0,
 }
 
-# Class-Balanced Augmentation (enhanced for small structures)
-# copy_paste=0.5 copies instances from other images, helping underrepresented classes
-# Higher scale variance helps with size variations in CSP/LV
+# Enhanced Augmentation for YOLO26L (FetSAM-style)
+# NO copy_paste - destroys anatomical spatial relationships in medical imaging
+# NO mosaic/mixup - combines images unnaturally for ultrasound
+# Use whole-image transforms that preserve structure
 CLASS_BALANCED_AUGMENTATION = {
-    "hsv_h": 0.0,
-    "hsv_s": 0.0,
-    "hsv_v": 0.4,
-    "degrees": 30.0,
-    "translate": 0.15,
-    "scale": 0.4,  # Higher scale variance for better generalization
-    "shear": 0.0,
-    "perspective": 0.0,
-    "flipud": 0.3,
-    "fliplr": 0.3,
-    "mosaic": 0.5,  # Enable mosaic for more diverse training
-    "mixup": 0.1,   # Light mixup
-    "copy_paste": 0.5,  # Copy-paste augmentation for class balancing
+    "hsv_h": 0.0,      # No hue shift (grayscale ultrasound)
+    "hsv_s": 0.0,      # No saturation shift
+    "hsv_v": 0.4,      # Brightness variation (valid for ultrasound)
+    "degrees": 30.0,   # Rotation (preserves anatomy)
+    "translate": 0.15, # Translation
+    "scale": 0.4,      # Scale variation
+    "shear": 0.0,      # No shear (distorts anatomy)
+    "perspective": 0.0,# No perspective (distorts anatomy)
+    "flipud": 0.3,     # Vertical flip (valid - symmetric anatomy)
+    "fliplr": 0.3,     # Horizontal flip (valid - symmetric anatomy)
+    "mosaic": 0.0,     # DISABLED - combines unrelated images
+    "mixup": 0.0,      # DISABLED - blends images unnaturally
+    "copy_paste": 0.0, # DISABLED - destroys spatial relationships
 }
 
 BASIC_AUGMENTATION = {
@@ -172,6 +173,34 @@ EXPERIMENTS = {
         "use_fetsam_aug": True,
         "img_size": 800,
         "batch_size": 32,  # M model can handle larger batches
+        "epochs": 300,
+    },
+    "domain_guided_l": {
+        "name": "Domain-Guided YOLO26L",
+        "description": "YOLO26L with domain-guided augmentation (context-preserving cut-paste) + FetSAM loss",
+        "model_size": "l",
+        "augmentation": FETSAM_AUGMENTATION,  # Standard augmentation during training
+        "custom_loss": True,
+        "use_fetsam_aug": True,
+        "use_domain_guided": True,  # Run domain-guided offline augmentation before training
+        "domain_guided_multiplier": 1.5,  # 1.5x dataset size
+        "img_size": 800,
+        "batch_size": 16,
+        "epochs": 300,
+    },
+    "domain_guided_offline_l": {
+        "name": "Domain-Guided + Offline Aug YOLO26L",
+        "description": "YOLO26L with both domain-guided and offline augmentation + FetSAM loss",
+        "model_size": "l",
+        "augmentation": FETSAM_AUGMENTATION,
+        "custom_loss": True,
+        "use_fetsam_aug": True,
+        "use_domain_guided": True,
+        "use_offline_aug": True,  # Also run standard offline augmentation
+        "domain_guided_multiplier": 1.3,
+        "offline_aug_multiplier": 1.5,
+        "img_size": 800,
+        "batch_size": 16,
         "epochs": 300,
     },
 }
