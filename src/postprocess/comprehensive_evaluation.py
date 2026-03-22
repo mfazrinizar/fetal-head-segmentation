@@ -331,7 +331,8 @@ class ComprehensiveEvaluator:
                 matched_gt = set()
                 
                 for pred in pred_list:
-                    best_iou = 0
+                    best_mask_iou = 0
+                    best_det_iou = 0
                     best_gt_idx = -1
                     
                     for gt_idx, gt in enumerate(gt_list):
@@ -340,11 +341,12 @@ class ComprehensiveEvaluator:
                         
                         # Compute mask IoU
                         iou = compute_iou(pred['mask'], gt['mask'])
-                        if iou > best_iou:
-                            best_iou = iou
+                        if iou > best_mask_iou:
+                            best_mask_iou = iou
                             best_gt_idx = gt_idx
+                            best_det_iou = compute_box_iou(pred['bbox'], gt['bbox'])
                     
-                    if best_iou >= self.iou_threshold and best_gt_idx != -1:
+                    if best_mask_iou >= self.iou_threshold and best_gt_idx != -1:
                         # True positive
                         class_tp[class_id] += 1
                         matched_gt.add(best_gt_idx)
@@ -355,14 +357,14 @@ class ComprehensiveEvaluator:
                         class_dices[class_id].append(compute_dice(pred['mask'], gt_mask))
                         
                         # Detection IoU (box)
-                        det_iou = compute_box_iou(pred['bbox'], gt_list[best_gt_idx]['bbox'])
-                        class_det_ious[class_id].append(det_iou)
+                        class_det_ious[class_id].append(best_det_iou)
                         
                         all_det_results.append({
                             'class_id': class_id,
                             'conf': pred.get('conf', 1.0),
                             'tp': True,
-                            'iou': best_iou,
+                            'mask_iou': best_mask_iou,
+                            'det_iou': best_det_iou,
                         })
                     else:
                         # False positive
@@ -371,7 +373,8 @@ class ComprehensiveEvaluator:
                             'class_id': class_id,
                             'conf': pred.get('conf', 1.0),
                             'tp': False,
-                            'iou': best_iou,
+                            'mask_iou': best_mask_iou,
+                            'det_iou': best_det_iou,
                         })
                 
                 # Unmatched ground truths are false negatives
@@ -438,61 +441,86 @@ class ComprehensiveEvaluator:
         results.seg_mDice = np.mean(all_dices) if all_dices else 0.0
         results.det_mIoU = np.mean(all_det_ious) if all_det_ious else 0.0
         
-        # Compute mAP (simplified - using the recorded results)
-        results.det_mAP50 = self._compute_map(all_det_results, iou_thresh=0.5)
-        results.det_mAP50_95 = self._compute_map_range(all_det_results)
-        results.seg_mAP50 = results.det_mAP50  # Same for instance segmentation
-        results.seg_mAP50_95 = results.det_mAP50_95
+        # Compute total GT per class for mAP denominator
+        total_gt_per_class = {}
+        for class_id in range(self.num_classes):
+            total_gt_per_class[class_id] = class_tp[class_id] + class_fn[class_id]
+        
+        # Compute mAP per-class then average (COCO-style)
+        results.det_mAP50 = self._compute_map(all_det_results, total_gt_per_class, iou_key='det_iou', iou_thresh=0.5)
+        results.det_mAP50_95 = self._compute_map_range(all_det_results, total_gt_per_class, iou_key='det_iou')
+        results.seg_mAP50 = self._compute_map(all_det_results, total_gt_per_class, iou_key='mask_iou', iou_thresh=0.5)
+        results.seg_mAP50_95 = self._compute_map_range(all_det_results, total_gt_per_class, iou_key='mask_iou')
         
         return results
     
-    def _compute_map(self, results: List[Dict], iou_thresh: float = 0.5) -> float:
-        """Compute mAP at given IoU threshold."""
+    def _compute_map(self, results: List[Dict], total_gt_per_class: Dict[int, int],
+                     iou_key: str = 'mask_iou', iou_thresh: float = 0.5) -> float:
+        """Compute mAP at given IoU threshold (mean of per-class APs)."""
         if not results:
             return 0.0
         
-        # Filter by IoU threshold
-        filtered = [r for r in results if r['iou'] >= iou_thresh or not r['tp']]
-        
-        # Sort by confidence
-        filtered = sorted(filtered, key=lambda x: x['conf'], reverse=True)
-        
-        # Compute precision-recall curve
-        tp_cumsum = 0
-        fp_cumsum = 0
-        precisions = []
-        recalls = []
-        
-        total_positives = sum(1 for r in filtered if r['tp'])
-        
-        for r in filtered:
-            if r['tp']:
-                tp_cumsum += 1
-            else:
-                fp_cumsum += 1
+        class_aps = []
+        for class_id in range(self.num_classes):
+            total_gt = total_gt_per_class.get(class_id, 0)
+            if total_gt == 0:
+                continue
             
-            precision = tp_cumsum / (tp_cumsum + fp_cumsum)
-            recall = tp_cumsum / total_positives if total_positives > 0 else 0
+            # Get all detections for this class, sorted by confidence
+            class_dets = sorted(
+                [r for r in results if r['class_id'] == class_id],
+                key=lambda x: x['conf'], reverse=True
+            )
             
-            precisions.append(precision)
-            recalls.append(recall)
+            if not class_dets:
+                class_aps.append(0.0)
+                continue
+            
+            # Classify TP/FP at this IoU threshold
+            tp_cumsum = 0
+            fp_cumsum = 0
+            precisions = []
+            recalls = []
+            
+            for det in class_dets:
+                # A detection is TP only if it was matched AND its IoU >= threshold
+                if det['tp'] and det[iou_key] >= iou_thresh:
+                    tp_cumsum += 1
+                else:
+                    fp_cumsum += 1
+                
+                precision = tp_cumsum / (tp_cumsum + fp_cumsum)
+                recall = tp_cumsum / total_gt
+                precisions.append(precision)
+                recalls.append(recall)
+            
+            # AP via all-point interpolation (COCO-style monotone decreasing)
+            # Pad with sentinel values
+            mrec = [0.0] + recalls + [recalls[-1]]
+            mpre = [1.0] + precisions + [0.0]
+            
+            # Make precision monotonically decreasing
+            for i in range(len(mpre) - 2, -1, -1):
+                mpre[i] = max(mpre[i], mpre[i + 1])
+            
+            # Compute area under PR curve
+            ap = 0.0
+            for i in range(1, len(mrec)):
+                if mrec[i] != mrec[i - 1]:
+                    ap += (mrec[i] - mrec[i - 1]) * mpre[i]
+            
+            class_aps.append(ap)
         
-        # Compute AP using 11-point interpolation
-        ap = 0
-        for t in np.arange(0, 1.1, 0.1):
-            prec_at_recall = [p for p, r in zip(precisions, recalls) if r >= t]
-            if prec_at_recall:
-                ap += max(prec_at_recall) / 11
-        
-        return ap
+        return float(np.mean(class_aps)) if class_aps else 0.0
     
-    def _compute_map_range(self, results: List[Dict]) -> float:
+    def _compute_map_range(self, results: List[Dict], total_gt_per_class: Dict[int, int],
+                           iou_key: str = 'mask_iou') -> float:
         """Compute mAP@50:95 (average over IoU thresholds 0.5 to 0.95)."""
         aps = []
         for iou_thresh in np.arange(0.5, 1.0, 0.05):
-            ap = self._compute_map(results, iou_thresh)
+            ap = self._compute_map(results, total_gt_per_class, iou_key=iou_key, iou_thresh=iou_thresh)
             aps.append(ap)
-        return np.mean(aps) if aps else 0.0
+        return float(np.mean(aps)) if aps else 0.0
 
 
 def evaluate_from_ultralytics_results(
