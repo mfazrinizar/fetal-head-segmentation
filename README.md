@@ -4,32 +4,34 @@ Multi-class instance segmentation of fetal head structures (Brain, CSP, LV) usin
 
 ## Overview
 
-| Component | Description |
-|-----------|-------------|
-| **Model** | YOLO26-seg from [mfazrinizar/ultralytics](https://github.com/mfazrinizar/ultralytics) |
-| **Classes** | Brain, CSP (Cavum Septum Pellucidum), LV (Lateral Ventricles) |
-| **Dataset** | 3,832 images, 2,037 patients |
-| **Split** | 70/15/15 inter-patient (no data leakage) |
+| Component   | Description                                                                                                                                             |
+| ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Model**   | YOLO26-seg from [mfazrinizar/ultralytics](https://github.com/mfazrinizar/ultralytics)                                                                   |
+| **Classes** | Brain, CSP (Cavum Septum Pellucidum), LV (Lateral Ventricles)                                                                                           |
+| **Dataset** | 3,832 images, 2,037 patients                                                                                                                            |
+| **Split**   | 70/15/15 inter-patient (no data leakage), [data for reproducibility](https://www.kaggle.com/datasets/mfazrinizar/fetal-head-segmentation-yolo-splitted) |
 
 ## Dataset Statistics
 
-| Split | Patients | Images | Brain | CSP | LV |
-|-------|----------|--------|-------|-----|-----|
-| Train | 1,425 | 2,654 | 2,626 | 890 | 1,026 |
-| Val | 305 | 603 | 598 | 221 | 238 |
-| Test | 307 | 575 | 568 | 172 | 212 |
+| Split | Patients | Images | Brain | CSP | LV    |
+| ----- | -------- | ------ | ----- | --- | ----- |
+| Train | 1,425    | 2,654  | 2,626 | 890 | 1,026 |
+| Val   | 305      | 603    | 598   | 221 | 238   |
+| Test  | 307      | 575    | 568   | 172 | 212   |
 
 ## FetSAM Implementation
 
 Based on Alzubaidi et al. (2024): "FetSAM: Advanced Segmentation Techniques for Fetal Head Biometrics"
 
 **Augmentations:**
+
 - Rotation: ±30°
 - Horizontal/Vertical Flip: 0.3
 - Brightness: 0.4
 - No mosaic/mixup (medical imaging)
 
 **Loss Function:**
+
 ```
 L_combined = 0.5 × WeightedDice + 0.5 × WeightedLovasz
 Class weights: [Brain=0.1, CSP=0.9, LV=0.7]
@@ -71,12 +73,12 @@ python src/demo_with_fetsam_loss.py
 
 ## Experiments
 
-| Experiment | Description |
-|------------|-------------|
-| `baseline` | YOLO26 default (BCE + Dice) |
-| `fetsam_aug` | FetSAM augmentations only |
+| Experiment    | Description                 |
+| ------------- | --------------------------- |
+| `baseline`    | YOLO26 default (BCE + Dice) |
+| `fetsam_aug`  | FetSAM augmentations only   |
 | `fetsam_loss` | FetSAM loss (Dice + Lovasz) |
-| `fetsam_full` | Full FetSAM pipeline |
+| `fetsam_full` | Full FetSAM pipeline        |
 
 ## Key Features
 
