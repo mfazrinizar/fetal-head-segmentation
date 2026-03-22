@@ -191,7 +191,7 @@ def load_yolo_labels(label_path: Path, img_shape: Tuple[int, int]) -> Dict[int, 
                     'mask': mask,
                     'polygon': coords,
                 })
-    
+        
     return annotations
 
 
@@ -262,17 +262,23 @@ class ComprehensiveEvaluator:
         image_files = list(images_dir.glob('*.png')) + list(images_dir.glob('*.jpg'))
         print(f"Evaluating {len(image_files)} images from {split} split...")
         
-        # Initialize counters
-        all_det_results = []  # For mAP calculation
-        all_seg_results = []  # For segmentation metrics
+        # IoU thresholds for mAP calculation (COCO-style)
+        iou_thresholds = np.linspace(0.5, 0.95, 10)
         
-        # Per-class confusion counters
+        # Accumulators for mAP (per-image, per-class)
+        # Each entry: (conf, tp_vector_10_thresholds, class_id)
+        all_stats = []
+        
+        # Per-class confusion counters (at iou_threshold=0.5)
         class_tp = defaultdict(int)
         class_fp = defaultdict(int)
         class_fn = defaultdict(int)
         class_tn = defaultdict(int)
         
-        # IoU and Dice accumulators
+        # Per-class GT counts
+        class_gt_count = defaultdict(int)
+        
+        # IoU and Dice accumulators (for matched TPs at threshold 0.5)
         class_ious = defaultdict(list)
         class_dices = defaultdict(list)
         class_det_ious = defaultdict(list)
@@ -288,6 +294,10 @@ class ComprehensiveEvaluator:
             
             gt_annotations = load_yolo_labels(label_path, (h, w))
             
+            # Count GT per class
+            for class_id, gt_list in gt_annotations.items():
+                class_gt_count[class_id] += len(gt_list)
+            
             # Run prediction
             results = self.model.predict(
                 source=str(img_path),
@@ -300,85 +310,98 @@ class ComprehensiveEvaluator:
             
             result = results[0]
             
-            # Process predictions
-            pred_annotations = defaultdict(list)
-            if result.masks is not None and result.boxes is not None:
-                for i, (mask, box, cls, conf) in enumerate(zip(
-                    result.masks.data,
-                    result.boxes.xyxy,
-                    result.boxes.cls,
-                    result.boxes.conf
-                )):
-                    class_id = int(cls.item())
-                    # Resize mask to original image size
-                    mask_np = mask.cpu().numpy()
-                    mask_resized = cv2.resize(mask_np, (w, h)) > 0.5
-                    
-                    pred_annotations[class_id].append({
-                        'bbox': box.cpu().numpy(),
-                        'mask': mask_resized.astype(np.uint8),
-                        'conf': conf.item(),
-                    })
-            
-            # Match predictions with ground truth for each class
+            # Process predictions per class
             for class_id in range(self.num_classes):
                 gt_list = gt_annotations.get(class_id, [])
-                pred_list = pred_annotations.get(class_id, [])
                 
-                # Sort predictions by confidence
-                pred_list = sorted(pred_list, key=lambda x: x.get('conf', 0), reverse=True)
+                # Get predictions for this class
+                pred_list = []
+                if result.masks is not None and result.boxes is not None:
+                    for mask, box, cls, conf in zip(
+                        result.masks.data,
+                        result.boxes.xyxy,
+                        result.boxes.cls,
+                        result.boxes.conf
+                    ):
+                        if int(cls.item()) == class_id:
+                            mask_np = mask.cpu().numpy()
+                            mask_resized = cv2.resize(mask_np, (w, h)) > 0.5
+                            pred_list.append({
+                                'bbox': box.cpu().numpy(),
+                                'mask': mask_resized.astype(np.uint8),
+                                'conf': conf.item(),
+                            })
                 
-                matched_gt = set()
+                # Sort by confidence (descending)
+                pred_list = sorted(pred_list, key=lambda x: x['conf'], reverse=True)
                 
-                for pred in pred_list:
-                    best_mask_iou = 0
-                    best_det_iou = 0
-                    best_gt_idx = -1
-                    
-                    for gt_idx, gt in enumerate(gt_list):
-                        if gt_idx in matched_gt:
-                            continue
-                        
-                        # Compute mask IoU
-                        iou = compute_iou(pred['mask'], gt['mask'])
-                        if iou > best_mask_iou:
-                            best_mask_iou = iou
-                            best_gt_idx = gt_idx
-                            best_det_iou = compute_box_iou(pred['bbox'], gt['bbox'])
-                    
-                    if best_mask_iou >= self.iou_threshold and best_gt_idx != -1:
-                        # True positive
-                        class_tp[class_id] += 1
-                        matched_gt.add(best_gt_idx)
-                        
-                        # Record IoU and Dice
-                        gt_mask = gt_list[best_gt_idx]['mask']
-                        class_ious[class_id].append(compute_iou(pred['mask'], gt_mask))
-                        class_dices[class_id].append(compute_dice(pred['mask'], gt_mask))
-                        
-                        # Detection IoU (box)
-                        class_det_ious[class_id].append(best_det_iou)
-                        
-                        all_det_results.append({
-                            'class_id': class_id,
-                            'conf': pred.get('conf', 1.0),
-                            'tp': True,
-                            'mask_iou': best_mask_iou,
-                            'det_iou': best_det_iou,
-                        })
-                    else:
-                        # False positive
+                n_gt = len(gt_list)
+                n_pred = len(pred_list)
+                
+                if n_pred == 0:
+                    class_fn[class_id] += n_gt
+                    continue
+                
+                if n_gt == 0:
+                    # All predictions are FP
+                    for pred in pred_list:
+                        tp_vec = np.zeros(10, dtype=bool)  # FP at all thresholds
+                        all_stats.append((pred['conf'], tp_vec, class_id, 0.0, 0.0))
                         class_fp[class_id] += 1
-                        all_det_results.append({
-                            'class_id': class_id,
-                            'conf': pred.get('conf', 1.0),
-                            'tp': False,
-                            'mask_iou': best_mask_iou,
-                            'det_iou': best_det_iou,
-                        })
+                    continue
                 
-                # Unmatched ground truths are false negatives
-                class_fn[class_id] += len(gt_list) - len(matched_gt)
+                # Compute IoU matrix: (n_gt, n_pred) for masks
+                iou_matrix_mask = np.zeros((n_gt, n_pred))
+                iou_matrix_det = np.zeros((n_gt, n_pred))
+                for gi, gt in enumerate(gt_list):
+                    for pi, pred in enumerate(pred_list):
+                        iou_matrix_mask[gi, pi] = compute_iou(gt['mask'], pred['mask'])
+                        iou_matrix_det[gi, pi] = compute_box_iou(gt['bbox'], pred['bbox'])
+                
+                # Match predictions to GT at each IoU threshold (ultralytics-style)
+                # tp_matrix: (n_pred, 10) - whether each pred is TP at each threshold
+                tp_matrix = np.zeros((n_pred, 10), dtype=bool)
+                
+                for ti, thresh in enumerate(iou_thresholds):
+                    # Find valid matches (IoU >= threshold)
+                    matches = np.argwhere(iou_matrix_mask >= thresh)
+                    if len(matches) > 0:
+                        # Sort by IoU descending
+                        match_ious = iou_matrix_mask[matches[:, 0], matches[:, 1]]
+                        sorted_idx = np.argsort(-match_ious)
+                        matches = matches[sorted_idx]
+                        
+                        # Greedy matching: each GT and pred can only be matched once
+                        matched_gt = set()
+                        matched_pred = set()
+                        for gi, pi in matches:
+                            if gi not in matched_gt and pi not in matched_pred:
+                                tp_matrix[pi, ti] = True
+                                matched_gt.add(gi)
+                                matched_pred.add(pi)
+                
+                # Record stats for mAP
+                for pi, pred in enumerate(pred_list):
+                    mask_iou = iou_matrix_mask[:, pi].max() if n_gt > 0 else 0.0
+                    det_iou = iou_matrix_det[:, pi].max() if n_gt > 0 else 0.0
+                    all_stats.append((pred['conf'], tp_matrix[pi], class_id, mask_iou, det_iou))
+                
+                # For P/R/F1 at threshold 0.5
+                tp_at_05 = tp_matrix[:, 0].sum()
+                fp_at_05 = n_pred - tp_at_05
+                fn_at_05 = n_gt - tp_at_05
+                
+                class_tp[class_id] += tp_at_05
+                class_fp[class_id] += fp_at_05
+                class_fn[class_id] += fn_at_05
+                
+                # Record IoU/Dice for matched TPs at threshold 0.5
+                for pi in range(n_pred):
+                    if tp_matrix[pi, 0]:  # TP at IoU=0.5
+                        best_gi = iou_matrix_mask[:, pi].argmax()
+                        class_ious[class_id].append(iou_matrix_mask[best_gi, pi])
+                        class_dices[class_id].append(compute_dice(pred_list[pi]['mask'], gt_list[best_gi]['mask']))
+                        class_det_ious[class_id].append(iou_matrix_det[best_gi, pi])
         
         # Compute metrics
         results = EvaluationResults()
@@ -409,17 +432,17 @@ class ComprehensiveEvaluator:
             mean_det_iou = np.mean(class_det_ious[class_id]) if class_det_ious[class_id] else 0.0
             
             results.per_class[class_name] = ClassMetrics(
-                precision=precision,
-                recall=recall,
-                specificity=specificity,
-                f1_score=f1,
-                iou=mean_iou,
-                dice=mean_dice,
-                tp=tp,
-                fp=fp,
-                fn=fn,
-                tn=tn,
-                support=tp + fn,
+                precision=float(precision),
+                recall=float(recall),
+                specificity=float(specificity),
+                f1_score=float(f1),
+                iou=float(mean_iou),
+                dice=float(mean_dice),
+                tp=int(tp),
+                fp=int(fp),
+                fn=int(fn),
+                tn=int(tn),
+                support=int(tp + fn),
             )
         
         # Compute macro averages
@@ -441,86 +464,90 @@ class ComprehensiveEvaluator:
         results.seg_mDice = np.mean(all_dices) if all_dices else 0.0
         results.det_mIoU = np.mean(all_det_ious) if all_det_ious else 0.0
         
-        # Compute total GT per class for mAP denominator
-        total_gt_per_class = {}
-        for class_id in range(self.num_classes):
-            total_gt_per_class[class_id] = class_tp[class_id] + class_fn[class_id]
-        
-        # Compute mAP per-class then average (COCO-style)
-        results.det_mAP50 = self._compute_map(all_det_results, total_gt_per_class, iou_key='det_iou', iou_thresh=0.5)
-        results.det_mAP50_95 = self._compute_map_range(all_det_results, total_gt_per_class, iou_key='det_iou')
-        results.seg_mAP50 = self._compute_map(all_det_results, total_gt_per_class, iou_key='mask_iou', iou_thresh=0.5)
-        results.seg_mAP50_95 = self._compute_map_range(all_det_results, total_gt_per_class, iou_key='mask_iou')
+        # Compute mAP using ultralytics-style approach
+        # all_stats: list of (conf, tp_vec_10, class_id, mask_iou, det_iou)
+        results.seg_mAP50, results.seg_mAP50_95 = self._compute_map_from_stats(all_stats, class_gt_count, iou_type='mask')
+        results.det_mAP50, results.det_mAP50_95 = self._compute_map_from_stats(all_stats, class_gt_count, iou_type='det')
         
         return results
     
-    def _compute_map(self, results: List[Dict], total_gt_per_class: Dict[int, int],
-                     iou_key: str = 'mask_iou', iou_thresh: float = 0.5) -> float:
-        """Compute mAP at given IoU threshold (mean of per-class APs)."""
-        if not results:
-            return 0.0
+    def _compute_map_from_stats(self, all_stats: List, class_gt_count: Dict[int, int], 
+                                 iou_type: str = 'mask') -> Tuple[float, float]:
+        """Compute mAP@50 and mAP@50-95 using ultralytics-style computation.
         
-        class_aps = []
+        Args:
+            all_stats: List of (conf, tp_vec_10, class_id, mask_iou, det_iou)
+            class_gt_count: Dict mapping class_id to GT count
+            iou_type: 'mask' or 'det' (currently both use same tp_vec since matching is mask-based)
+            
+        Returns:
+            (mAP50, mAP50-95)
+        """
+        if not all_stats:
+            return 0.0, 0.0
+        
+        # Convert to arrays
+        confs = np.array([s[0] for s in all_stats])
+        tp_matrix = np.array([s[1] for s in all_stats])  # (N, 10)
+        class_ids = np.array([s[2] for s in all_stats])
+        
+        # Sort by confidence descending
+        sort_idx = np.argsort(-confs)
+        confs = confs[sort_idx]
+        tp_matrix = tp_matrix[sort_idx]
+        class_ids = class_ids[sort_idx]
+        
+        # Compute AP per class
+        # ap_per_class: (nc, 10) - AP at each IoU threshold
+        ap_per_class = np.zeros((self.num_classes, 10))
+        
         for class_id in range(self.num_classes):
-            total_gt = total_gt_per_class.get(class_id, 0)
-            if total_gt == 0:
+            n_gt = class_gt_count.get(class_id, 0)
+            if n_gt == 0:
                 continue
             
-            # Get all detections for this class, sorted by confidence
-            class_dets = sorted(
-                [r for r in results if r['class_id'] == class_id],
-                key=lambda x: x['conf'], reverse=True
-            )
-            
-            if not class_dets:
-                class_aps.append(0.0)
+            # Get predictions for this class (already sorted by conf)
+            mask = class_ids == class_id
+            if not mask.any():
                 continue
             
-            # Classify TP/FP at this IoU threshold
-            tp_cumsum = 0
-            fp_cumsum = 0
-            precisions = []
-            recalls = []
+            tp_class = tp_matrix[mask]  # (n_pred, 10)
             
-            for det in class_dets:
-                # A detection is TP only if it was matched AND its IoU >= threshold
-                if det['tp'] and det[iou_key] >= iou_thresh:
-                    tp_cumsum += 1
-                else:
-                    fp_cumsum += 1
+            # For each IoU threshold
+            for ti in range(10):
+                tp_col = tp_class[:, ti]
                 
-                precision = tp_cumsum / (tp_cumsum + fp_cumsum)
-                recall = tp_cumsum / total_gt
-                precisions.append(precision)
-                recalls.append(recall)
-            
-            # AP via all-point interpolation (COCO-style monotone decreasing)
-            # Pad with sentinel values
-            mrec = [0.0] + recalls + [recalls[-1]]
-            mpre = [1.0] + precisions + [0.0]
-            
-            # Make precision monotonically decreasing
-            for i in range(len(mpre) - 2, -1, -1):
-                mpre[i] = max(mpre[i], mpre[i + 1])
-            
-            # Compute area under PR curve
-            ap = 0.0
-            for i in range(1, len(mrec)):
-                if mrec[i] != mrec[i - 1]:
-                    ap += (mrec[i] - mrec[i - 1]) * mpre[i]
-            
-            class_aps.append(ap)
+                # Cumulative TP and FP
+                tp_cumsum = np.cumsum(tp_col)
+                fp_cumsum = np.cumsum(~tp_col)
+                
+                # Precision and Recall
+                precision = tp_cumsum / (tp_cumsum + fp_cumsum + 1e-16)
+                recall = tp_cumsum / (n_gt + 1e-16)
+                
+                # Compute AP using all-point interpolation (COCO-style)
+                # Append sentinel values
+                mrec = np.concatenate(([0.0], recall, [1.0]))
+                mpre = np.concatenate(([1.0], precision, [0.0]))
+                
+                # Make precision monotonically decreasing
+                mpre = np.flip(np.maximum.accumulate(np.flip(mpre)))
+                
+                # 101-point interpolation
+                x = np.linspace(0, 1, 101)
+                ap = np.trapezoid(np.interp(x, mrec, mpre), x) if hasattr(np, 'trapezoid') else np.trapz(np.interp(x, mrec, mpre), x)
+                
+                ap_per_class[class_id, ti] = ap
         
-        return float(np.mean(class_aps)) if class_aps else 0.0
-    
-    def _compute_map_range(self, results: List[Dict], total_gt_per_class: Dict[int, int],
-                           iou_key: str = 'mask_iou') -> float:
-        """Compute mAP@50:95 (average over IoU thresholds 0.5 to 0.95)."""
-        aps = []
-        for iou_thresh in np.arange(0.5, 1.0, 0.05):
-            ap = self._compute_map(results, total_gt_per_class, iou_key=iou_key, iou_thresh=iou_thresh)
-            aps.append(ap)
-        return float(np.mean(aps)) if aps else 0.0
+        # mAP@50 = mean of AP at first threshold (0.5)
+        valid_classes = [c for c in range(self.num_classes) if class_gt_count.get(c, 0) > 0]
+        if not valid_classes:
+            return 0.0, 0.0
+        
+        mAP50 = np.mean([ap_per_class[c, 0] for c in valid_classes])
+        mAP50_95 = np.mean([ap_per_class[c, :].mean() for c in valid_classes])
+        
+        return float(mAP50), float(mAP50_95)
 
 
 def evaluate_from_ultralytics_results(
